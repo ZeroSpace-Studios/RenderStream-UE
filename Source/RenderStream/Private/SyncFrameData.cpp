@@ -91,9 +91,17 @@ void FRenderStreamSyncFrameData::ControllerReceive()
     TRACE_CPUPROFILER_EVENT_SCOPE(TEXT("FRenderStreamSyncFrameData::ControllerReceive()"));
     SCOPE_CYCLE_COUNTER(STAT_AwaitFrame);
     const double StartTime = FPlatformTime::Seconds();
-    const RenderStreamLink::RS_ERROR Ret = RenderStreamLink::instance().rs_awaitFrameData(500, &m_frameData);
 
-    if (Ret == RenderStreamLink::RS_ERROR_STREAMS_CHANGED)
+    Async<>(EAsyncExecution::Thread, [this]
+    {
+        RenderStreamLink::FrameData localFrameData;
+        const auto Ret = RenderStreamLink::instance().rs_awaitFrameData(500, &localFrameData);
+        FScopeLock Lock(&FrameDataGuard);
+        LastError = Ret;
+        m_frameData = localFrameData;
+    });
+
+    if (LastError == RenderStreamLink::RS_ERROR_STREAMS_CHANGED)
     {
         // Update the streams
         FRenderStreamModule* Module = FRenderStreamModule::Get();
@@ -104,21 +112,21 @@ void FRenderStreamSyncFrameData::ControllerReceive()
         // We need to actually get frame data, go back.
         ControllerReceive();
     }
-    else if (Ret == RenderStreamLink::RS_ERROR_QUIT)
+    else if (LastError == RenderStreamLink::RS_ERROR_QUIT)
     {
         m_frameDataValid = false;
         m_isQuitting = true; // notify ndisplay followers that the application should quit.
         // we must defer the processing of this quit message until the next frame, because otherwise ndisplay won't synchronise this.
     }
-    else if (Ret != RenderStreamLink::RS_ERROR_SUCCESS)
+    else if (LastError != RenderStreamLink::RS_ERROR_SUCCESS)
     {
-        if (Ret == RenderStreamLink::RS_ERROR_TIMEOUT)
+        if (LastError == RenderStreamLink::RS_ERROR_TIMEOUT)
         {
             RenderStreamLink::instance().rs_setNewStatusMessage("Not requested");
         }
         else
         {
-            UE_LOG(LogRenderStream, Error, TEXT("Error awaiting frame data error %d"), Ret);
+            UE_LOG(LogRenderStream, Error, TEXT("Error awaiting frame data error %d"), LastError);
         }
         m_frameDataValid = false; // TODO: Mark timecode as invalid only after some multiple of the expected incoming framerate.
     }

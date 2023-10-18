@@ -28,6 +28,8 @@ public:
     bool m_isQuitting = false;
     bool m_frameDataValid = false;
     RenderStreamLink::FrameData m_frameData;
+    RenderStreamLink::RS_ERROR LastError;
+    mutable FCriticalSection FrameDataGuard;
     bool m_streamsChanged = false;
     double LastTrackedTime = std::numeric_limits<double>::quiet_NaN();
     double AwaitTime = 0;
